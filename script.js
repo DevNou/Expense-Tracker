@@ -5,95 +5,105 @@ const transactionListEl = document.getElementById("transaction-list");
 const transactionFormEl = document.getElementById("transaction-form");
 const descriptionEl = document.getElementById("description");
 const amountEl = document.getElementById("amount");
+const categoryEl = document.getElementById("category");
+const exportBtn = document.getElementById("export-btn");
+const expenseChartCtx = document.getElementById("expenseChart").getContext("2d");
+const modeToggle = document.getElementById("mode-toggle");
+const searchEl = document.getElementById("search");
+const filterCategoryEl = document.getElementById("filter-category");
 
 let transactions = JSON.parse(localStorage.getItem("transactions")) || [];
+let expenseChart;
 
 transactionFormEl.addEventListener("submit", addTransaction);
+exportBtn.addEventListener("click", exportCSV);
+modeToggle.addEventListener("click", toggleMode);
+searchEl.addEventListener("input", updateTransactionList);
+filterCategoryEl.addEventListener("change", updateTransactionList);
 
-function addTransaction(e) {
+function addTransaction(e){
   e.preventDefault();
-
-  // get form values
   const description = descriptionEl.value.trim();
   const amount = parseFloat(amountEl.value);
-
-  transactions.push({
-    id: Date.now(),
-    description,
-    amount,
-  });
-
+  const category = categoryEl.value;
+  if(!description || !amount || !category) return;
+  transactions.push({ id: Date.now(), description, amount, category });
   localStorage.setItem("transactions", JSON.stringify(transactions));
-
   updateTransactionList();
   updateSummary();
-
   transactionFormEl.reset();
 }
 
-function updateTransactionList() {
+function updateTransactionList(){
   transactionListEl.innerHTML = "";
-
-  const sortedTransactions = [...transactions].reverse();
-
-  sortedTransactions.forEach((transaction) => {
-    const transactionEl = createTransactionElement(transaction);
-    transactionListEl.appendChild(transactionEl);
+  const search = searchEl.value.toLowerCase();
+  const filterCat = filterCategoryEl.value;
+  const filtered = transactions.filter(t=>{
+    return t.description.toLowerCase().includes(search) &&
+           (filterCat ? t.category === filterCat : true);
+  }).reverse();
+  filtered.forEach(t=>{
+    const li = document.createElement("li");
+    li.classList.add("transaction");
+    li.classList.add(t.amount>0?"income":"expense");
+    li.innerHTML=`<span>${t.description} (${t.category})</span>
+      <span>${formatCurrency(t.amount)}
+      <button class="delete-btn" onclick="removeTransaction(${t.id})">x</button></span>`;
+    transactionListEl.appendChild(li);
   });
 }
 
-function createTransactionElement(transaction) {
-  const li = document.createElement("li");
-  li.classList.add("transaction");
-  li.classList.add(transaction.amount > 0 ? "income" : "expense");
-
-  li.innerHTML = `
-    <span>${transaction.description}</span>
-    <span>
-  
-    ${formatCurrency(transaction.amount)}
-      <button class="delete-btn" onclick="removeTransaction(${transaction.id})">x</button>
-    </span>
-  `;
-
-  return li;
+function updateSummary(){
+  const balance = transactions.reduce((acc,t)=>acc+t.amount,0);
+  const income = transactions.filter(t=>t.amount>0).reduce((acc,t)=>acc+t.amount,0);
+  const expenses = transactions.filter(t=>t.amount<0).reduce((acc,t)=>acc+t.amount,0);
+  balanceEl.textContent=formatCurrency(balance);
+  balanceEl.style.color = balance>=0?"#28a745":"#dc3545";
+  incomeAmountEl.textContent=formatCurrency(income);
+  expenseAmountEl.textContent=formatCurrency(expenses);
+  updateChart();
 }
 
-function updateSummary() {
-  // 100, -50, 200, -200 => 50
-  const balance = transactions.reduce((acc, transaction) => acc + transaction.amount, 0);
-
-  const income = transactions
-    .filter((transaction) => transaction.amount > 0)
-    .reduce((acc, transaction) => acc + transaction.amount, 0);
-
-  const expenses = transactions
-    .filter((transaction) => transaction.amount < 0)
-    .reduce((acc, transaction) => acc + transaction.amount, 0);
-
-  // update ui => todo: fix the formatting
-  balanceEl.textContent = formatCurrency(balance);
-  incomeAmountEl.textContent = formatCurrency(income);
-  expenseAmountEl.textContent = formatCurrency(expenses);
-}
-
-function formatCurrency(number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(number);
-}
-
-function removeTransaction(id) {
-  // filter out the one we wanted to delete
-  transactions = transactions.filter((transaction) => transaction.id !== id);
-
-  localStorage.setItem("transcations", JSON.stringify(transactions));
-
+function removeTransaction(id){
+  transactions = transactions.filter(t=>t.id!==id);
+  localStorage.setItem("transactions",JSON.stringify(transactions));
   updateTransactionList();
   updateSummary();
 }
 
-// initial render
+function formatCurrency(num){
+  return new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(num);
+}
+
+function exportCSV(){
+  const header="Description,Amount,Category\n";
+  const csv = transactions.map(t=>`${t.description},${t.amount},${t.category}`).join("\n");
+  const blob = new Blob([header+csv],{type:"text/csv"});
+  const url = URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download="transactions.csv"; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function updateChart(){
+  const categoryTotals={};
+  transactions.filter(t=>t.amount<0).forEach(t=>{
+    categoryTotals[t.category]=(categoryTotals[t.category]||0)+Math.abs(t.amount);
+  });
+  const labels=Object.keys(categoryTotals);
+  const data=Object.values(categoryTotals);
+  if(expenseChart) expenseChart.destroy();
+  expenseChart=new Chart(expenseChartCtx,{
+    type:"pie",
+    data:{ labels, datasets:[{ data, backgroundColor:["#ff7f50","#ff69b4","#ffa07a","#ffb6c1","#ffdab9"] }] },
+    options:{ responsive:true, plugins:{ legend:{ position:'bottom' } } }
+  });
+}
+
+function toggleMode(){
+  document.body.classList.toggle("dark-mode");
+  modeToggle.textContent = document.body.classList.contains("dark-mode") ? "☀️ Light Mode" : "🌙 Dark Mode";
+}
+
+// Initial render
 updateTransactionList();
 updateSummary();
